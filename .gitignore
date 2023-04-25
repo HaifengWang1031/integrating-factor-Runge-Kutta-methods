@@ -1,0 +1,6 @@
+# dirs
+/.vscode
+/__pycache
+
+# files
+.DS_Store
