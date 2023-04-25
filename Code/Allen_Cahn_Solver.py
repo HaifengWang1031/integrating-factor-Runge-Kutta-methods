@@ -38,7 +38,7 @@ class Allen_Cahn_Solver_1D():
             self.U = u0[:-1][np.newaxis,:]
 
         elif self.bc == "neumann":
-            self.L = self.eps**2*self.laplace_periodic()
+            self.L = self.eps**2*self.laplace_neumann()
             self.D,self.Q = np.linalg.eig(self.L)
             self.Q_inv = np.linalg.inv(self.Q)
             self.G = self.gradient_neumann()
@@ -57,6 +57,8 @@ class Allen_Cahn_Solver_1D():
             self.step = self.IFRK3
         elif step_method == "IFRK4":
             self.step = self.IFRK4
+        elif step_method == "Euler":
+            self.step = self.Euler
 
         self.tn = np.array([0])
         self.Energys = np.array(self.energy(self.U[0]))
@@ -84,7 +86,7 @@ class Allen_Cahn_Solver_1D():
         return L
 
     def gl_potential(self):
-        F = lambda u: (u - u**2)**2/4
+        F = lambda u: (u**2-1)**2/4
         f = lambda u: (u - u**3)
         return F,f
 
@@ -92,6 +94,9 @@ class Allen_Cahn_Solver_1D():
         F =lambda u: theta/2*((1+u)*np.log(1+u) + (1-u)*np.log(1-u)) - theta_c/2*u**2
         f =lambda u: theta/2*np.log((1-u)/(1+u)) + theta_c*u
         return F,f
+
+    def Euler(self,Un,tau):
+        return np.linalg.solve(np.eye(self.N)-tau*self.L,Un + tau*self.f(Un))
 
     def IFRK1(self,Un,tau):
         expM = self.Q@np.diag(np.exp(tau*self.D))@self.Q_inv
@@ -138,20 +143,24 @@ class Allen_Cahn_Solver_1D():
 
     def solve(self):
         pbar = tqdm.tqdm(total=self.T+1e-5,
-                         bar_format="{desc}: {percentage:.2f}%|{bar}| {n:.2f}/{total:.2f} [{elapsed}<{remaining}] {postfix}",
+                         bar_format="{desc}: {percentage:.2f}%|{bar}| {n:.2f}/{total:.2f}[{elapsed}<{remaining}] {postfix}",
                          mininterval=0.1)
+
         while self.tn[-1] < self.T:
             if self.tn[-1] + self.tau <= self.T:
                 tau = self.tau
             else: 
                 tau = self.T - self.tn[-1]
-
             u = self.step(self.U[-1],tau)
-            self.U = np.concatenate([self.U,u[np.newaxis,:]],axis=0) 
-            self.tn = np.append(self.tn,np.round(self.tn[-1]+tau,5)) 
-            self.Energys = np.append(self.Energys,self.energy(u))
-            pbar.update(self.tau)
 
+            self.tn = np.append(self.tn,np.round(self.tn[-1]+tau,5)) 
+            self.U = np.concatenate([self.U,u[np.newaxis,:]],axis=0) 
+            self.Energys = np.append(self.Energys,self.energy(u))
+            
+            pbar.set_postfix({"time_step":tau,
+                              "energy":self.Energys[-1],
+                              "maximum_val":np.max(u)})
+            pbar.update(self.tau)
         pbar.close()
 
 
