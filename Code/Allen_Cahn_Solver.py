@@ -76,6 +76,40 @@ class Allen_Cahn_Solver_1D():
             self.step = self.IFRK4
             self.expM = self.Q@np.diag(np.exp(self.tau*self.D))@self.Q_inv
             self.expM12 = self.Q@np.diag(np.exp(1/2*self.tau*self.D))@self.Q_inv
+        
+        elif step_method == "EFRK1":
+            self.step = self.EFRK1
+            self.phi0 = np.eye(self.N)
+
+            self.phi1 = self.phi0@(np.eye(self.N) - self.tau*self.L)
+            self.phiM10 = np.linalg.solve(self.phi1,self.phi0)
+        
+        elif step_method == "EFRK2":
+            self.step = self.EFRK2
+            self.phi0 = np.eye(self.N)
+
+            self.phi1 = self.phi0@(np.eye(self.N) - self.tau*self.L)
+            self.phiM10 = np.linalg.solve(self.phi1,self.phi0)
+
+            self.phi2 = 1/2*self.phi0 + 1/2*self.phi1@(np.eye(self.N) - self.tau*self.L) 
+            self.phiM20 = np.linalg.solve(self.phi2,self.phi0)
+            self.phiM21 = np.linalg.solve(self.phi2,self.phi1)
+        
+        elif step_method == "EFRK3":
+            self.step = self.EFRK3
+            self.phi0 = np.eye(self.N)
+
+            self.phi1 = self.phi0@(np.eye(self.N) - 2/3*self.tau*self.L)
+            self.phiM10 = np.linalg.solve(self.phi1,self.phi0)
+
+            self.phi2 = 2/3*self.phi0 + 1/3*self.phi1@(np.eye(self.N) - 4/3*self.tau*self.L)
+            self.phiM20 = np.linalg.solve(self.phi2,self.phi0)
+            self.phiM21 = np.linalg.solve(self.phi2,self.phi1)
+
+            self.phi3 = 59/128*self.phi0 + 15/128*self.phi0@(np.eye(self.N) - 4/3*self.tau*self.L) + 27/64*self.phi2@(np.eye(self.N) - 4/3*self.tau*self.L)
+            self.phiM30 = np.linalg.solve(self.phi3,self.phi0)
+            self.phiM31 = np.linalg.solve(self.phi3,self.phi1)
+            self.phiM32 = np.linalg.solve(self.phi3,self.phi2)
 
     # Linear operators 
     def laplace_periodic(self):
@@ -139,6 +173,21 @@ class Allen_Cahn_Solver_1D():
         return 1/3*self.expM12@(U1 + self.tau/2*self.f(U1)) +\
                1/3*self.expM12@U2 +\
                1/3*(U3 + self.tau/2*self.f(U3))
+
+        # EFRK
+    def EFRK1(self,Un):
+        return self.phiM10@(Un + self.tau*self.f(Un))
+    
+    def EFRK2(self,Un):
+        U1 = self.phiM10@(Un + self.tau*self.f(Un))
+        return 1/2*self.phiM20@Un + 1/2*self.phiM21@(U1 + self.tau*self.f(U1))
+
+    def EFRK3(self,Un):
+        U1 = self.phiM10@(Un + 2*self.tau/3*self.f(Un))
+        U2 = 2/3*self.phiM20@Un + 1/3*self.phiM21@(U1 + 4*self.tau/3*self.f(U1))
+        return 59/128*self.phiM30@Un +\
+               15/128*self.phiM30@(Un + 4/3*self.tau*self.f(Un)) +\
+               54/128*self.phiM32@(U2 + 4/3*self.tau*self.f(U2))
     
     def energy(self,Un):
         energy = np.nan
@@ -306,9 +355,9 @@ class Allen_Cahn_Solver_2D():
         Gy[0,1] -= 1 ;Gy[-1,-2] += 1; Gy /= self.hy
         Iy = np.eye(self.M+1)
 
-        G = sparse.kron(Iy,Gx),\
-            sparse.kron(Gy,Ix)
-        return G.toarray()
+        G = sparse.kron(Iy,Gx).toarray(),\
+            sparse.kron(Gy,Ix).toarray()
+        return G
 
     def gl_potential(self):
         F = lambda u: 1/4*(1-u**2)**2
