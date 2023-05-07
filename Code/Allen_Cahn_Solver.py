@@ -357,7 +357,7 @@ class Allen_Cahn_fSolver_1D():
 
         self.T = t_period
         self.tau = time_step
-        self.tn = np.array([0])
+        self.tn = np.arange(0,self.T+self.tau,self.tau)
 
         self.xa,self.xb = s_domain
         self.N = discrete_num
@@ -371,8 +371,8 @@ class Allen_Cahn_fSolver_1D():
             self.L = self.eps**2*self.laplace_periodic()
             self.D = np.array([-4*self.eps**2*np.sin(k*np.pi/self.N)**2/self.h**2 for k in range(self.N)])
 
-            self.U = u0[:-1][np.newaxis,:]
-            self.fU = fft.fft(u0[:-1])[np.newaxis,:]
+            self.U = np.empty((self.tn.shape[0],self.N)); self.U[0] = u0[:-1]
+            self.fU = np.empty((self.tn.shape[0],self.N),dtype = np.complex128); self.fU[0] = fft.fft(u0[:-1])
         elif self.bc == "neumann":
             raise
 
@@ -381,7 +381,7 @@ class Allen_Cahn_fSolver_1D():
         elif potential == "ginzburg_landau":
             self.F,self.f = self.gl_potential()
         
-        self.Energys = np.array(self.energy(self.U[0]))
+        self.Energys = np.empty_like(self.tn); self.Energys[0] = self.energy(self.U[0])
 
         if step_method == "IFRK1":
             self.step = self.IFRK1
@@ -640,18 +640,20 @@ class Allen_Cahn_fSolver_1D():
                          bar_format="{desc}: {percentage:.2f}% |{bar}| {n:.2f}/{total:.2f}[{elapsed}<{remaining}] {postfix}",
                          mininterval=0.1)
 
-        while self.tn[-1] < self.T:
-            fu = self.step(self.fU[-1],self.U[-1])
+        cur_index = 0
+        while cur_index < self.tn.shape[0]-1:
+            fu = self.step(self.fU[cur_index],self.U[cur_index])
 
-            self.tn = np.append(self.tn,np.round(self.tn[-1]+self.tau,12))
-            
-            self.fU = np.concatenate([self.fU,fu[np.newaxis,:]],axis=0) 
-            self.U = np.concatenate([self.U,np.real(fft.ifft(fu))[np.newaxis,:]],axis=0) 
-            self.Energys = np.append(self.Energys,self.energy(self.U[-1]))
+            cur_index += 1
+
+            self.fU[cur_index] = fu
+            self.U[cur_index] = fft.ifft(fu).real
+
+            self.Energys[cur_index] = self.energy(self.U[cur_index])
             
             pbar.set_postfix({"time_step":self.tau,
-                              "energy":self.Energys[-1],
-                              "maximum_val":np.max(np.abs(self.U[-1]))})
+                              "energy":self.Energys[cur_index],
+                              "maximum_val":np.max(np.abs(self.U[cur_index]))})
             pbar.update(self.tau)
         pbar.close()
 
@@ -877,7 +879,7 @@ class Allen_Cahn_fSolver_2D():
 
         self.T = t_period
         self.tau = time_step
-        self.tn = np.array([0])
+        self.tn = np.arange(0,self.T+self.tau,self.tau)
 
         self.xa,self.ya,self.xb,self.yb = s_domain
         self.N,self.M = discrete_num
@@ -900,8 +902,9 @@ class Allen_Cahn_fSolver_2D():
             self.Dy = np.array([-4*self.eps**2*np.sin(k*np.pi/self.M)**2/self.hy**2 for k in range(self.M)])[:,np.newaxis]
             self.D = self.Dx + self.Dy
 
-            self.U = u0[:-1,:-1][np.newaxis,:,:]
-            self.fU = fft.fft2(u0[:-1,:-1])[np.newaxis,:,:]
+            self.U = np.empty((self.tn.shape[0],self.M,self.N)); self.U[0] = u0[:-1,:-1]
+            self.fU = np.empty((self.tn.shape[0],self.M,self.N),dtype = np.complex128); self.fU[0] = fft.fft2(u0[:-1,:-1])
+
         elif self.bc == "neumann":
             raise
 
@@ -910,7 +913,7 @@ class Allen_Cahn_fSolver_2D():
         elif potential == "ginzburg_landau":
             self.F,self.f = self.gl_potential()
 
-        self.Energys = np.array(self.energy(self.U[0]))
+        self.Energys = np.empty_like(self.tn); self.Energys[0] = self.energy(self.U[0])
         
         if step_method == "IFRK1":
             self.step = self.IFRK1
@@ -1173,18 +1176,20 @@ class Allen_Cahn_fSolver_2D():
                          bar_format="{desc}: {percentage:.2f}% |{bar}| {n:.2f}/{total:.2f}[{elapsed}<{remaining}] {postfix}",
                          mininterval=0.1)
 
-        while self.tn[-1] < self.T:
-            fu = self.step(self.fU[-1],self.U[-1])
+        cur_index = 0
+        while cur_index < self.tn.shape[0]-1:
+            fu = self.step(self.fU[cur_index],self.U[cur_index])
 
-            self.tn = np.append(self.tn,np.round(self.tn[-1]+self.tau,12)) 
+            cur_index += 1
 
-            self.fU = np.concatenate([self.fU,fu[np.newaxis,:,:]],axis=0) 
-            self.U = np.concatenate([self.U,fft.ifft2(fu).real[np.newaxis,:,:]],axis=0) 
-            self.Energys = np.append(self.Energys,self.energy(self.U[-1]))
+            self.fU[cur_index] = fu
+            self.U[cur_index] = fft.ifft2(fu).real
+
+            self.Energys[cur_index] = self.energy(self.U[cur_index])
             
             pbar.set_postfix({"time_step":self.tau,
-                              "energy":self.Energys[-1],
-                              "maximum_val":np.max(np.abs(self.U[-1]))})
+                              "energy":self.Energys[cur_index],
+                              "maximum_val":np.max(np.abs(self.U[cur_index]))})
             pbar.update(self.tau)
         pbar.close()
 
@@ -1424,7 +1429,7 @@ class Allen_Cahn_fSolver_3D():
 
         self.T = t_period
         self.tau = time_step
-        self.tn = np.array([0])
+        self.tn = np.arange(0,self.T+self.tau,self.tau)
 
         self.xa,self.ya,self.za,self.xb,self.yb,self.zb = s_domain
         self.N,self.M,self.K = discrete_num
@@ -1452,8 +1457,8 @@ class Allen_Cahn_fSolver_3D():
 
             self.D = self.Dx + self.Dy + self.Dz
 
-            self.U = u0[:-1,:-1,:-1][np.newaxis,:,:,:]
-            self.fU = fft.fftn(u0[:-1,:-1,:-1])[np.newaxis,:,:,:]
+            self.U = np.empty((self.tn.shape[0],self.M,self.N,self.K)); self.U[0] = u0[:-1,:-1,:-1]
+            self.fU = np.empty((self.tn.shape[0],self.M,self.N,self.K),dtype = np.complex128); self.fU[0] = fft.fftn(u0[:-1,:-1,:-1])
         elif self.bc == "neumann":
             raise
 
@@ -1462,7 +1467,7 @@ class Allen_Cahn_fSolver_3D():
         elif potential == "ginzburg_landau":
             self.F,self.f = self.gl_potential()
 
-        self.Energys = np.array(self.energy(self.U[0]))
+        self.Energys = np.empty_like(self.tn); self.Energys[0] = self.energy(self.U[0])
         
         if step_method == "IFRK1":
             self.step = self.IFRK1
@@ -1729,17 +1734,19 @@ class Allen_Cahn_fSolver_3D():
                          bar_format="{desc}: {percentage:.2f}%|{bar}| {n:.2f}/{total:.2f}[{elapsed}<{remaining}] {postfix}",
                          mininterval=0.1)
 
-        while self.tn[-1] < self.T:
-            fu = self.step(self.fU[-1],self.U[-1])
+        cur_index = 0
+        while cur_index < self.tn.shape[0]-1:
+            fu = self.step(self.fU[cur_index],self.U[cur_index])
 
-            self.tn = np.append(self.tn,np.round(self.tn[-1]+self.tau,12)) 
-            self.fU = np.concatenate([self.fU,fu[np.newaxis,:,:,:]],axis=0) 
-            self.U = np.concatenate([self.U,fft.ifftn(fu).real[np.newaxis,:,:,:]],axis=0) 
-            self.Energys = np.append(self.Energys,self.energy(self.U[-1]))
+            cur_index += 1
+
+            self.fU[cur_index] = fu
+            self.U[cur_index] = fft.ifftn(fu).real
+            self.Energys[cur_index] = self.energy(self.U[cur_index])
             
             pbar.set_postfix({"time_step":self.tau,
-                              "energy":self.Energys[-1],
-                              "maximum_val":np.max(self.U[-1])})
+                              "energy":self.Energys[cur_index],
+                              "maximum_val":np.max(self.U[cur_index])})
             pbar.update(self.tau)
         pbar.close()
 
@@ -1792,7 +1799,7 @@ if __name__ == "__main__":
     # print(timeit.timeit(lambda :np.real(np.fft.ifft2(np.fft.fft2(solver.U[0])*solver.D).real),number=1000))
     # print(timeit.timeit(lambda :np.real(fft.ifft2(fft.fft2(solver.U[0])*solver.D).real),number=1000))
 
-    discrete_num = N,N,N
-    initial_condition = np.random.uniform(-0.8,0.8,(N,N,N))
+    # discrete_num = N,N,N
+    # initial_condition = np.random.uniform(-0.8,0.8,(N,N,N))
 
-    print(fft.ifftn(fft.fftn(initial_condition,axes=[0,1,2]),axes=[0,1,2]).real - initial_condition)
+    # print(fft.ifftn(fft.fftn(initial_condition,axes=[0,1,2]),axes=[0,1,2]).real - initial_condition)
