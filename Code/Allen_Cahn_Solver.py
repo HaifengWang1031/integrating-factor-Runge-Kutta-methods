@@ -5,6 +5,7 @@ import numpy as np
 import scipy.linalg as linalg
 from scipy import sparse 
 import scipy.sparse.linalg as slinalg
+import scipy.fft as fft
 
 import tqdm
 
@@ -335,7 +336,7 @@ class Allen_Cahn_Solver_1D():
             
             pbar.set_postfix({"time_step":self.tau,
                               "energy":self.Energys[-1],
-                              "maximum_val":np.max(u)})
+                              "maximum_val":np.max(np.abs(u))})
             pbar.update(self.tau)
         pbar.close()
 
@@ -584,7 +585,7 @@ class Allen_Cahn_fSolver_1D():
                                                    0.227000995504038*self.expM53*(fU3 + self.tau/r*np.fft.fft(self.f(np.fft.ifft(fU3).real))) +\
                                                    0.234095162611706*self.expM54*(fU4 + self.tau/r*np.fft.fft(self.f(np.fft.ifft(fU4).real)))
 
-    #     # EFRK
+    #   EFRK
     def EFRK1(self,fUn,Un):
         return self.phiM10*(fUn + self.tau*np.fft.fft(self.f(Un)))
     
@@ -650,7 +651,7 @@ class Allen_Cahn_fSolver_1D():
             
             pbar.set_postfix({"time_step":self.tau,
                               "energy":self.Energys[-1],
-                              "maximum_val":np.max(self.U[-1])})
+                              "maximum_val":np.max(np.abs(self.U[-1]))})
             pbar.update(self.tau)
         pbar.close()
 
@@ -856,6 +857,337 @@ class Allen_Cahn_Solver_2D():
             pbar.set_postfix({"time_step":self.tau,
                               "energy":self.Energys[-1],
                               "maximum_val":np.max(u)})
+            pbar.update(self.tau)
+        pbar.close()
+
+class Allen_Cahn_fSolver_2D():
+    def __init__(
+        self,
+        eps:float,
+        t_period:float,
+        s_domain:Tuple[float,float,float,float],
+        time_step:float,
+        discrete_num: Tuple[int,int],
+        initial_condition: tnp.NDArray,
+        boundary_condition: str,
+        potential: str,
+        step_method: str) -> None:
+
+        self.eps = eps
+
+        self.T = t_period
+        self.tau = time_step
+        self.tn = np.array([0])
+
+        self.xa,self.ya,self.xb,self.yb = s_domain
+        self.N,self.M = discrete_num
+        self.hx = (self.xb-self.xa)/self.N
+        self.hy = (self.yb-self.ya)/self.M
+
+        self.xh = np.linspace(self.xa,self.xb,self.N+1)
+        self.yh = np.linspace(self.ya,self.yb,self.M+1)
+        self.Xh,self.Yh = np.meshgrid(self.xh,self.yh)
+
+        u0 = initial_condition
+
+        self.bc = boundary_condition
+        if self.bc == "periodic":
+            self.Lx,self.Ly = self.laplace_periodic()
+            self.Lx = self.eps**2*self.Lx
+            self.Ly = self.eps**2*self.Ly
+
+            self.Dx = np.array([-4*self.eps**2*np.sin(k*np.pi/self.N)**2/self.hx**2 for k in range(self.N)])[np.newaxis,:]
+            self.Dy = np.array([-4*self.eps**2*np.sin(k*np.pi/self.M)**2/self.hy**2 for k in range(self.M)])[:,np.newaxis]
+            self.D = self.Dx + self.Dy
+
+            self.U = u0[:-1,:-1][np.newaxis,:,:]
+            self.fU = fft.fft2(u0[:-1,:-1])[np.newaxis,:,:]
+        elif self.bc == "neumann":
+            raise
+
+        if potential == "flory_huggins":
+            self.F,self.f = self.fh_potential()
+        elif potential == "ginzburg_landau":
+            self.F,self.f = self.gl_potential()
+
+        self.Energys = np.array(self.energy(self.U[0]))
+        
+        if step_method == "IFRK1":
+            self.step = self.IFRK1
+            self.expM = np.exp(self.tau*self.D)
+
+        elif step_method == "IFRK2":
+            self.step = self.IFRK2
+            self.expM = np.exp(self.tau*self.D)
+
+        elif step_method == "IFRK3":
+            self.step = self.IFRK3
+            self.expM = np.exp(self.tau*self.D)
+            self.expM13 = np.exp(1/3*self.tau*self.D)
+            self.expM23 = np.exp(2/3*self.tau*self.D)
+
+        elif step_method == "Shu_Osher3":
+            self.step = self.Shu_Osher3
+            self.expM = np.exp(self.tau*self.D)
+            self.expM12 = np.exp(1/2*self.tau*self.D)
+            self.expMm12 = np.exp(-1/2*self.tau*self.D)
+
+        elif step_method == "IFRK4":
+            self.step = self.IFRK4
+            self.expM = np.exp(self.tau*self.D)
+            self.expM12 = np.exp(1/2*self.tau*self.D)
+
+        elif step_method == "IFRK54":
+            self.step = self.IFRK54 
+            c0 = 0; c1 = 0.4549; c2 = c3 = 0.5165; c4 = 0.9903; c5 = 1
+            self.expM10 = np.exp((c1-c0)*self.tau*self.D) 
+
+            self.expM20 = np.exp((c2-c0)*self.tau*self.D) 
+            self.expM21 = np.exp((c2-c1)*self.tau*self.D) 
+
+            self.expM30 = np.exp((c3-c0)*self.tau*self.D)
+            self.expM32 = np.exp((c3-c2)*self.tau*self.D)
+
+            self.expM40 = np.exp((c4-c0)*self.tau*self.D)
+            self.expM43 = np.exp((c4-c3)*self.tau*self.D)
+
+            self.expM50 = np.exp((c5-c0)*self.tau*self.D)
+            self.expM51 = np.exp((c5-c1)*self.tau*self.D)
+            self.expM53 = np.exp((c5-c3)*self.tau*self.D)
+            self.expM54 = np.exp((c5-c4)*self.tau*self.D)
+
+        elif step_method == "EFRK1":
+            self.step = self.EFRK1
+            self.phi0 = np.ones(self.N)
+
+            self.phi1 = self.phi0*(np.ones(self.N) - self.tau*self.D)
+            self.phiM10 = self.phi0/self.phi1
+        
+        elif step_method == "EFRK2":
+            self.step = self.EFRK2
+            self.phi0 = np.ones(self.N)
+
+            self.phi1 = self.phi0*(np.ones(self.N) - self.tau*self.D)
+            self.phi2 = 1/2*self.phi0 + 1/2*self.phi1*(np.ones(self.N) - self.tau*self.D) 
+
+            self.phiM10 = self.phi0/self.phi1
+            self.phiM20 = self.phi0/self.phi2
+            self.phiM21 = self.phi1/self.phi2
+        
+        elif step_method == "EFRK3":
+            self.step = self.EFRK3
+
+            self.phi0 = np.ones(self.N)
+            self.phi1 = self.phi0*(np.ones(self.N) - 2/3*self.tau*self.D)
+            self.phi2 = 2/3*self.phi0 +\
+                        1/3*self.phi1*(np.ones(self.N) - 4/3*self.tau*self.D)
+            self.phi3 = 59/128*self.phi0 +\
+                        15/128*self.phi0*(np.ones(self.N) - 4/3*self.tau*self.D) +\
+                        27/64*self.phi2*(np.ones(self.N) - 4/3*self.tau*self.D)
+
+            self.phiM10 = self.phi0/self.phi1
+
+            self.phiM20 = self.phi0/self.phi2
+            self.phiM21 = self.phi1/self.phi2
+
+            self.phiM30 = self.phi0/self.phi3
+            self.phiM31 = self.phi1/self.phi3
+            self.phiM32 = self.phi2/self.phi3
+        
+        elif step_method == "EFRK4":
+            self.step = self.EFRK4
+            self.phi0 = np.ones(self.N)
+            self.phi1 = self.phi0*(np.ones(self.N) - 1/2*self.tau*self.D)
+            self.phi2 = 1/2*self.phi0*(np.ones(self.N) + 1/2*self.tau*self.D) +\
+                        1/2*self.phi1*(np.ones(self.N) - self.tau*self.D)
+            self.phi3 = 1/9*self.phi0*(np.ones(self.N) + self.tau*self.D) +\
+                        2/9*self.phi1*(np.ones(self.N) + 3/2*self.tau*self.D) +\
+                        2/3*self.phi2*(np.ones(self.N) - 3/2*self.tau*self.D)
+            self.phi4 = 1/3*self.phi1*(np.ones(self.N) - 1/2*self.tau*self.D) +\
+                        1/3*self.phi2*np.ones(self.N) +\
+                        1/3*self.phi3*(np.ones(self.N) - 1/2*self.tau*self.D)
+
+            self.phiM10 = self.phi0/self.phi1
+            self.phiM20 = self.phi0/self.phi2
+            self.phiM21 = self.phi1/self.phi2
+            self.phiM30 = self.phi0/self.phi3
+            self.phiM31 = self.phi1/self.phi3
+            self.phiM32 = self.phi2/self.phi3
+            self.phiM41 = self.phi1/self.phi4
+            self.phiM42 = self.phi2/self.phi4
+            self.phiM43 = self.phi3/self.phi4
+
+        elif step_method == "EFRK54":
+            self.step = self.EFRK54 
+            c0 = 0; c1 = 0.4549; c2 = c3 = 0.5165; c4 = 0.9903; c5 = 1
+            r = 1.346586417284006
+
+            self.phi0 = np.ones(self.N)
+            self.phi1 = 0.387392167970373*self.phi0 + 0.612607832029627*self.phi0*(np.ones(self.N) - self.tau/r*self.D)
+            self.phi2 = 0.568702484115635*self.phi0 + 0.431297515884365*self.phi1*(np.ones(self.N) - self.tau/r*self.D)
+            self.phi3 = 0.589791736452092*self.phi0 + 0.410208263547908*self.phi2*(np.ones(self.N) - self.tau/r*self.D)
+            self.phi4 = 0.213474206786188*self.phi0 + 0.786525793213812*self.phi3*(np.ones(self.N) - self.tau/r*self.D) 
+
+            self.phi5 = 0.270147144537063*self.phi0 + 0.029337521506634*self.phi0*(np.ones(self.N) - self.tau/r*self.D) +\
+                                                      0.239419175840559*self.phi1*(np.ones(self.N) - self.tau/r*self.D) +\
+                                                      0.227000995504038*self.phi3*(np.ones(self.N) - self.tau/r*self.D) +\
+                                                      0.234095162611706*self.phi4*(np.ones(self.N) - self.tau/r*self.D)
+
+            self.phiM10 = self.phi0/self.phi1
+
+            self.phiM20 = self.phi0/self.phi2
+            self.phiM21 = self.phi1/self.phi2          
+
+            self.phiM30 = self.phi0/self.phi3          
+            self.phiM32 = self.phi2/self.phi3          
+
+            self.phiM40 = self.phi0/self.phi4          
+            self.phiM43 = self.phi3/self.phi4          
+
+            self.phiM50 = self.phi0/self.phi5          
+            self.phiM51 = self.phi1/self.phi5          
+            self.phiM53 = self.phi3/self.phi5           
+            self.phiM54 = self.phi4/self.phi5           
+
+
+    def laplace_periodic(self):
+        Lx = np.diag(-2*np.ones(self.N)) +\
+             np.diag(np.ones(self.N-1),1) +\
+             np.diag(np.ones(self.N-1),-1)
+        Lx[0,-1] = Lx[-1,0] = 1; Lx /= self.hx**2
+        
+        Ly = np.diag(-2*np.ones(self.M)) +\
+             np.diag(np.ones(self.M-1),1) +\
+             np.diag(np.ones(self.M-1),-1)
+        Ly[0,-1] = Ly[-1,0] = 1; Ly /= self.hy**2
+
+        return Lx,Ly
+
+    def gl_potential(self):
+        F = lambda u: 1/4*(1-u**2)**2
+        # f(u) = -F'(u)
+        f = lambda u: (u-u**3)
+        return F,f
+
+    def fh_potential(self,theta = 0.8,theta_c = 1.6):
+        F =lambda u: theta/2*((1+u)*np.log(1+u) + (1-u)*np.log(1-u)) - theta_c/2*u**2
+        # f(u) = -F'(u)
+        f =lambda u: theta/2*np.log((1-u)/(1+u)) + theta_c*u
+        # def f(u):
+        #     print(theta/2*np.log((1-u)/(1+u)) + theta_c*u)
+        #     return theta/2*np.log((1-u)/(1+u)) + theta_c*u
+        return F,f
+
+    #   IFRK
+    def IFRK1(self,fUn,Un):
+        return self.expM*(fUn + self.tau*fft.fft2(self.f(Un)))
+
+    def IFRK2(self,fUn,Un):
+        fU1 = self.expM*(fUn + self.tau*fft.fft2(self.f(Un)))
+        return 1/2*self.expM*fUn +\
+               1/2*(fU1 + self.tau*fft.fft2(self.f(fft.ifft2(fU1).real)))
+
+    def IFRK3(self,fUn,Un):
+        fU1 = self.expM23*(fUn + 2*self.tau/3*fft.fft2(self.f(Un)))
+        fU2 = 2/3*self.expM23*fUn + 1/3*(fU1 + 4*self.tau/3*fft.fft2(self.f(fft.ifft2(fU1).real)))
+        return 59/128*self.expM*fUn +\
+               15/128*self.expM*(fUn + 4/3*self.tau*fft.fft2(self.f(Un))) +\
+               54/128*self.expM13*(fU2 + 4/3*self.tau*fft.fft2(self.f(fft.ifft2(fU2).real)))
+            
+    def Shu_Osher3(self,fUn,Un):
+        fU1 = self.expM*(fUn + self.tau*fft.fft2(self.f(Un)))
+        fU2 = 3/4*self.expM12*fUn + 1/4*self.expMm12*(fU1 + self.tau*fft.fft2(self.f(fft.ifft2(fU1).real)))
+        return 1/3*self.expM*fUn +\
+               2/3*self.expM12*(fU2 + self.tau*fft.fft(self.f(fft.ifft2(fU2).real)))
+
+    def IFRK4(self,fUn,Un):
+        fU1 = self.expM12*(fUn + self.tau/2*fft.fft2(self.f(Un)))
+        fU2 = self.expM12*fUn + self.tau/2*fft.fft2(self.f(fft.ifft2(fU1).real))
+        fU3 = self.expM*fUn + self.tau*self.expM12*fft.fft2(self.f(fft.ifft2(fU2).real))
+
+        return 1/3*self.expM12*(fU1 + self.tau/2*fft.fft2(self.f(fft.ifft2(fU1).real))) +\
+               1/3*self.expM12*fU2 +\
+               1/3*(fU3 + self.tau/2*fft.fft2(self.f(fft.ifft2(fU3).real)))
+    
+    def IFRK54(self,fUn,Un):
+        r = 1.346586417284006
+        fU0 = fUn
+        fU1 = 0.387392167970373*self.expM10*fU0 + 0.612607832029627*self.expM10*(fU0 + self.tau/r*fft.fft2(self.f(fft.ifft2(fU0).real)))
+        fU2 = 0.568702484115635*self.expM20*fU0 + 0.431297515884365*self.expM21*(fU1 + self.tau/r*fft.fft2(self.f(fft.ifft2(fU1).real)))
+        fU3 = 0.589791736452092*self.expM30*fU0 + 0.410208263547908*self.expM32*(fU2 + self.tau/r*fft.fft2(self.f(fft.ifft2(fU2).real)))
+        fU4 = 0.213474206786188*self.expM40*fU0 + 0.786525793213812*self.expM43*(fU3 + self.tau/r*fft.fft2(self.f(fft.ifft2(fU3).real))) 
+
+        return 0.270147144537063*self.expM50*fU0 + 0.029337521506634*self.expM50*(fU0 + self.tau/r*fft.fft2(self.f(fft.ifft2(fU0).real))) +\
+                                                   0.239419175840559*self.expM51*(fU1 + self.tau/r*fft.fft2(self.f(fft.ifft2(fU1).real))) +\
+                                                   0.227000995504038*self.expM53*(fU3 + self.tau/r*fft.fft2(self.f(fft.ifft2(fU3).real))) +\
+                                                   0.234095162611706*self.expM54*(fU4 + self.tau/r*fft.fft2(self.f(fft.ifft2(fU4).real)))
+    
+    #   EFRK
+    def EFRK1(self,fUn,Un):
+        return self.phiM10*(fUn + self.tau*fft.fft2(self.f(Un)))
+    
+    def EFRK2(self,fUn,Un):
+        fU1 = self.phiM10*(fUn + self.tau*fft.fft2(self.f(Un)))
+        return 1/2*self.phiM20*fUn +\
+               1/2*self.phiM21*(fU1 + self.tau*fft.fft2(self.f(fft.ifft2(fU1).real)))
+
+    def EFRK3(self,fUn,Un):
+        fU1 = self.phiM10*(fUn + 2*self.tau/3*fft.fft2(self.f(Un)))
+        fU2 = 2/3*self.phiM20*fUn +\
+              1/3*self.phiM21*(fU1 + 4*self.tau/3*fft.fft2(self.f(fft.ifft2(fU1).real)))
+        return 59/128*self.phiM30*fUn +\
+               15/128*self.phiM30*(fUn + 4/3*self.tau*fft.fft2(self.f(Un))) +\
+               54/128*self.phiM32*(fU2 + 4/3*self.tau*fft.fft2(self.f(fft.ifft2(fU2).real)))
+    
+    def EFRK4(self,fUn,Un):
+        fU1 = self.phiM10*(fUn + self.tau/2*fft.fft2(self.f(Un)))
+        fU2 = 1/2*self.phiM20*(fUn - self.tau/2*fft.fft2(self.f(fft.ifft2(fUn).real))) +\
+              1/2*self.phiM21*(fU1 + self.tau*fft.fft2(self.f(fft.ifft2(fU1).real)))
+        fU3 = 1/9*self.phiM30*(fUn - self.tau*fft.fft2(self.f(fft.ifft2(fUn).real))) +\
+              2/9*self.phiM31*(fU1 - 3*self.tau/2*fft.fft2(self.f(fft.ifft2(fU2).real))) +\
+              2/3*self.phiM32*(fU2 + 3*self.tau/2*fft.fft2(self.f(fft.ifft2(fU2).real)))
+
+        return 1/3*self.phiM41*(fU1 + self.tau/2*fft.fft2(self.f(fft.ifft2(fU1).real))) +\
+               1/3*self.phiM42*fU2 +\
+               1/3*self.phiM43*(fU3 + self.tau/2*fft.fft2(self.f(fft.ifft2(fU3).real)))
+
+    def EFRK54(self,fUn,Un):
+        r = 1.346586417284006
+        fU0 = fUn
+        fU1 = 0.387392167970373*self.phiM10*fU0 + 0.612607832029627*self.phiM10*(fU0 + self.tau/r*fft.fft2(self.f(fft.ifft2(fU0).real)))
+        fU2 = 0.568702484115635*self.phiM20*fU0 + 0.431297515884365*self.phiM21*(fU1 + self.tau/r*fft.fft2(self.f(fft.ifft2(fU1).real)))
+        fU3 = 0.589791736452092*self.phiM30*fU0 + 0.410208263547908*self.phiM32*(fU2 + self.tau/r*fft.fft2(self.f(fft.ifft2(fU2).real)))
+        fU4 = 0.213474206786188*self.phiM40*fU0 + 0.786525793213812*self.phiM43*(fU3 + self.tau/r*fft.fft2(self.f(fft.ifft2(fU3).real))) 
+
+        return 0.270147144537063*self.phiM50*fU0 + 0.029337521506634*self.phiM50*(fU0 + self.tau/r*fft.fft2(self.f(fft.ifft2(fU0).real))) +\
+                                                   0.239419175840559*self.phiM51*(fU1 + self.tau/r*fft.fft2(self.f(fft.ifft2(fU1).real))) +\
+                                                   0.227000995504038*self.phiM53*(fU3 + self.tau/r*fft.fft2(self.f(fft.ifft2(fU3).real))) +\
+                                                   0.234095162611706*self.phiM54*(fU4 + self.tau/r*fft.fft2(self.f(fft.ifft2(fU4).real)))
+    def energy(self,Un):
+        energy = np.nan
+        if self.bc == "periodic":
+           energy = self.hx*self.hy*(-1/2*Un.flatten()@(self.Ly@Un + Un@self.Lx).flatten() + self.F(Un.flatten())@np.ones(self.N*self.M))
+        elif self.bc == "neumann":
+           pass
+        return energy
+
+    def solve(self):
+        pbar = tqdm.tqdm(total=self.T+self.tau,
+                         bar_format="{desc}: {percentage:.2f}% |{bar}| {n:.2f}/{total:.2f}[{elapsed}<{remaining}] {postfix}",
+                         mininterval=0.1)
+
+        while self.tn[-1] < self.T:
+            fu = self.step(self.fU[-1],self.U[-1])
+
+            self.tn = np.append(self.tn,np.round(self.tn[-1]+self.tau,12)) 
+
+            self.fU = np.concatenate([self.fU,fu[np.newaxis,:]],axis=0) 
+            self.U = np.concatenate([self.U,fft.ifft2(fu).real[np.newaxis,:]],axis=0) 
+            self.Energys = np.append(self.Energys,self.energy(self.U[-1]))
+            
+            pbar.set_postfix({"time_step":self.tau,
+                              "energy":self.Energys[-1],
+                              "maximum_val":np.max(np.abs(self.U[-1]))})
             pbar.update(self.tau)
         pbar.close()
 
@@ -1088,37 +1420,51 @@ class Allen_Cahn_Solver_3D():
 
 
 if __name__ == "__main__":
-    eps = 0.01
-    t_period = 1
-    s_domain = (0,1)
-    N = 16
-    discrete_num = N
-    xn = np.linspace(s_domain[0],s_domain[1],N+1)
-
-    initial_condition = np.random.rand(N+1)
-    boundary_condition = "periodic"
-    potential = "flory_huggins" 
-    solver = Allen_Cahn_Solver_1D(eps,t_period,s_domain,2**-6,discrete_num,initial_condition,boundary_condition,potential,"IFRK3")
-
-    print(solver.L@initial_condition[:-1])
-    print(np.real(np.fft.ifft(np.fft.fft(initial_condition[:-1])*[-4*eps**2*np.sin(k*np.pi/N)**2/solver.h**2 for k in range(N)])))
-
+    np.set_printoptions(linewidth=100,precision=4)
     # eps = 0.01
     # t_period = 1
-    # s_domain = (0,0,1,1)
-    # N = 8
-    # discrete_num = N,N
+    # s_domain = (0,1)
+    # N = 16
+    # discrete_num = N
     # xn = np.linspace(s_domain[0],s_domain[1],N+1)
 
-    # initial_condition = np.random.rand(N+1,N+1)
+    # initial_condition = np.random.uniform(-0.01,0.01,N+1)
     # boundary_condition = "periodic"
     # potential = "flory_huggins" 
-    # solver = Allen_Cahn_Solver_2D(eps,t_period,s_domain,2**-6,discrete_num,initial_condition,boundary_condition,potential,"IFRK3")
+    # solver = Allen_Cahn_Solver_1D(eps,t_period,s_domain,2**-6,discrete_num,initial_condition,boundary_condition,potential,"IFRK3")
+
+    # L_v,L_m = linalg.eigh(solver.L)
+    # print(L_m)
+    # print(np.linalg.norm(-solver.L,np.inf))
+    # print(np.linalg.norm(L_m@np.diag(-L_v)@L_m.T@initial_condition[:-1],np.inf))
+    # print(np.linalg.norm(L_m@(np.max(-L_v)*np.eye(N))@L_m.T@initial_condition[:-1],np.inf))
+
+    # print(np.linalg.norm(L_m@(1*np.eye(N))@L_m.T@initial_condition[:-1],np.inf))
+    # print(np.linalg.norm(L_m@(2*np.eye(N))@L_m.T@initial_condition[:-1],np.inf))
+
+
+    # print(np.real(np.fft.ifft(np.fft.fft(initial_condition[:-1])*[-4*eps**2*np.sin(k*np.pi/N)**2/solver.h**2 for k in range(N)])))
+
+    eps = 0.01
+    t_period = 1
+    s_domain = (0,0,1,1)
+    N = 512
+    discrete_num = N,N
+    xn = np.linspace(s_domain[0],s_domain[1],N+1)
+
+    initial_condition = np.random.uniform(-0.8,0.8,(N+1,N+1))
+    boundary_condition = "periodic"
+    potential = "flory_huggins" 
+    solver = Allen_Cahn_fSolver_2D(eps,t_period,s_domain,2**-6,discrete_num,initial_condition,boundary_condition,potential,"IFRK4")
+    # print(solver.Energys)
     # solver.solve()
 
-    # print(solver.L@solver.U[-1] - np.real(np.fft.ifft(np.fft.fft(solver.L[:,0])*np.fft.fft(solver.U[-1]))))
+    # print(solver.Ly@solver.U[0] + solver.U[0]@solver.Lx)
+    # print(fft.ifft2(fft.fft2(solver.U[0])*solver.D).real)
 
-    # import timeit
-    # print(timeit.timeit(lambda :solver.L@solver.U[-1]))
-    # print(timeit.timeit(lambda :np.real(np.fft.ifft(np.fft.fft(solver.L[:,0])*np.fft.fft(solver.U[-1])))))
+
+    import timeit
+    print(timeit.timeit(lambda :solver.Ly@solver.U[0] + solver.U[0]@solver.Lx,number=1000))
+    print(timeit.timeit(lambda :np.real(np.fft.ifft2(np.fft.fft2(solver.U[0])*solver.D).real),number=1000))
+    print(timeit.timeit(lambda :np.real(fft.ifft2(fft.fft2(solver.U[0])*solver.D).real),number=1000))
 
