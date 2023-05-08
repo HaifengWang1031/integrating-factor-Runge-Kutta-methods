@@ -604,14 +604,16 @@ class Allen_Cahn_fSolver_1D():
     
     def EFRK4(self,fUn,Un):
         fU1 = self.phiM10*(fUn + self.tau/2*fft.fft(self.f(Un)))
+
         fU2 = 1/2*self.phiM20*(fUn - self.tau/2*fft.fft(self.f(fft.ifft(fUn).real))) +\
               1/2*self.phiM21*(fU1 + self.tau*fft.fft(self.f(fft.ifft(fU1).real)))
+
         fU3 = 1/9*self.phiM30*(fUn - self.tau*fft.fft(self.f(fft.ifft(fUn).real))) +\
-              2/9*self.phiM31*(fU1 - 3*self.tau/2*fft.fft(self.f(fft.ifft(fU2).real))) +\
+              2/9*self.phiM31*(fU1 - 3*self.tau/2*fft.fft(self.f(fft.ifft(fU1).real))) +\
               2/3*self.phiM32*(fU2 + 3*self.tau/2*fft.fft(self.f(fft.ifft(fU2).real)))
 
         return 1/3*self.phiM41*(fU1 + self.tau/2*fft.fft(self.f(fft.ifft(fU1).real))) +\
-               1/3*self.phiM42*fU2 +\
+               1/3*self.phiM42* fU2 +\
                1/3*self.phiM43*(fU3 + self.tau/2*fft.fft(self.f(fft.ifft(fU3).real)))
 
     def EFRK54(self,fUn,Un):
@@ -1144,7 +1146,7 @@ class Allen_Cahn_fSolver_2D():
         fU2 = 1/2*self.phiM20*(fUn - self.tau/2*fft.fft2(self.f(fft.ifft2(fUn).real))) +\
               1/2*self.phiM21*(fU1 + self.tau*fft.fft2(self.f(fft.ifft2(fU1).real)))
         fU3 = 1/9*self.phiM30*(fUn - self.tau*fft.fft2(self.f(fft.ifft2(fUn).real))) +\
-              2/9*self.phiM31*(fU1 - 3*self.tau/2*fft.fft2(self.f(fft.ifft2(fU2).real))) +\
+              2/9*self.phiM31*(fU1 - 3*self.tau/2*fft.fft2(self.f(fft.ifft2(fU1).real))) +\
               2/3*self.phiM32*(fU2 + 3*self.tau/2*fft.fft2(self.f(fft.ifft2(fU2).real)))
 
         return 1/3*self.phiM41*(fU1 + self.tau/2*fft.fft2(self.f(fft.ifft2(fU1).real))) +\
@@ -1701,7 +1703,7 @@ class Allen_Cahn_fSolver_3D():
         fU2 = 1/2*self.phiM20*(fUn - self.tau/2*fft.fftn(self.f(fft.ifftn(fUn).real))) +\
               1/2*self.phiM21*(fU1 + self.tau*fft.fftn(self.f(fft.ifftn(fU1).real)))
         fU3 = 1/9*self.phiM30*(fUn - self.tau*fft.fftn(self.f(fft.ifftn(fUn).real))) +\
-              2/9*self.phiM31*(fU1 - 3*self.tau/2*fft.fftn(self.f(fft.ifftn(fU2).real))) +\
+              2/9*self.phiM31*(fU1 - 3*self.tau/2*fft.fftn(self.f(fft.ifftn(fU1).real))) +\
               2/3*self.phiM32*(fU2 + 3*self.tau/2*fft.fftn(self.f(fft.ifftn(fU2).real)))
 
         return 1/3*self.phiM41*(fU1 + self.tau/2*fft.fftn(self.f(fft.ifftn(fU1).real))) +\
