@@ -380,6 +380,8 @@ class Allen_Cahn_fSolver_1D():
             self.F,self.f = self.fh_potential()
         elif potential == "ginzburg_landau":
             self.F,self.f = self.gl_potential()
+        elif potential == "ginzburg_landau_nonlocal":
+            self.F,self.f = self.gl_potential_nl()
         
         self.Energys = np.empty_like(self.tn); self.Energys[0] = self.energy(self.U[0])
 
@@ -449,12 +451,12 @@ class Allen_Cahn_fSolver_1D():
             self.step = self.EFRK3
 
             self.phi0 = np.ones(self.N)
-            self.phi1 = self.phi0*(np.ones(self.N) - 2/3*self.tau*self.D)
+            self.phi1 =     self.phi0*(np.ones(self.N) - 2/3*self.tau*self.D)
             self.phi2 = 2/3*self.phi0 +\
                         1/3*self.phi1*(np.ones(self.N) - 4/3*self.tau*self.D)
             self.phi3 = 59/128*self.phi0 +\
                         15/128*self.phi0*(np.ones(self.N) - 4/3*self.tau*self.D) +\
-                        27/64*self.phi2*(np.ones(self.N) - 4/3*self.tau*self.D)
+                        27/64 *self.phi2*(np.ones(self.N) - 4/3*self.tau*self.D)
 
             self.phiM10 = self.phi0/self.phi1
 
@@ -533,6 +535,11 @@ class Allen_Cahn_fSolver_1D():
     def gl_potential(self):
         F = lambda u: 1/4*(1-u**2)**2
         f = lambda u: (u-u**3)
+        return F,f
+
+    def gl_potential_nl(self):
+        F = lambda u: 1/4*(1-u**2)**2
+        f = lambda u: (u-u**3) - np.mean(u-u**3)
         return F,f
 
     def fh_potential(self,theta = 0.8,theta_c = 1.6):
