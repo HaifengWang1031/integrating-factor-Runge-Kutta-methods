@@ -385,6 +385,7 @@ class Allen_Cahn_fSolver_1D():
         
         self.Energys = np.empty_like(self.tn); self.Energys[0] = self.energy(self.U[0])
 
+
         if step_method == "IFRK1":
             self.step = self.IFRK1
             self.expM = np.exp(self.tau*self.D)
@@ -548,6 +549,12 @@ class Allen_Cahn_fSolver_1D():
         return F,f
 
     # Time step method
+    # Forward Euler
+    def residual(self,Un):
+        return fft.ifft(fft.fft(Un)*self.D).real + self.f(Un)
+    def FE(self,Un):
+        return Un + self.tau*self.residual(Un)
+
         # IFRK
     def IFRK1(self,fUn,Un):
         return self.expM*(fUn + self.tau*fft.fft(self.f(Un)))
